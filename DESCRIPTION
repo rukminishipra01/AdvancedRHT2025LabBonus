@@ -1,0 +1,24 @@
+Package: AdvancedRHT2025LabBonus
+Type: Package
+Title: Linear Regression Using Matrix Computations
+Version: 0.1.0
+Authors@R: c(person("Shipra", "Rukmini", 
+                  email = "ruksu271@student.liu.se", 
+                  role = c("aut", "cre")),
+             person("Hannah", "Köster", 
+                  email = "hanko154@student.liu.se", 
+                  role = c("aut")) )
+Description: Implementation of linear regression using ordinary least squares and QR decomposition.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Suggests: 
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0),
+    MASS
+Config/testthat/edition: 3
+Imports: 
+    ggplot2
+RoxygenNote: 7.3.3
+VignetteBuilder: knitr

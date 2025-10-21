@@ -1,0 +1,100 @@
+---
+title: "AdvancedRHT2025LabBonus"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{AdvancedRHT2025LabBonus}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+
+
+# What is the linreg class/function? 
+linreg can be used to perform linear regression. It takes a formula describing the model for which to perform linear regression as well the data on which to perform the computations as input. Linear regression is performed using ordinary least squares by default or the faster, more robust method of QR decomposition by setting the method parameter to `qr`. 
+The linreg function performs the regression and stores the results as well as information about the initial call in a linreg instance which is returned. 
+Several methods exist for obtaining specific parts of the results or displaying them. 
+
+# How to use
+The following shows how to use linreg on the well-known iris dataset in order to provide a comprehensive overview of the functions and how they can be used. 
+
+## Set up
+First, the library and the data need to be loaded. 
+```{r setup, message=FALSE}
+library(AdvancedRHT2025LabBonus)
+data(iris)
+```
+
+## Perform linear regression
+To perform linear regression using linreg you need to decide on a model and describe it as a formula.
+You can then call the linreg function with the formula, the dataset, and optionally a method parameter to specify whether to use ordinary least squares ("ols") or QR decomposition ("qr") to perform the regression.
+
+```{r }
+# model
+m <- Petal.Length~Sepal.Width+Sepal.Length
+
+# linear regression using ordinary least squares
+mod_ols <- linreg(formula=m, data=iris, method="ols")
+print(mod_ols)
+mod_ols <- linreg(formula=m, data=iris) # same result as above as method is 
+# set to "ols" by default
+print(mod_ols)
+
+# linear regression using QR decomposition
+mod_qr <- linreg(formula=m, data=iris, method="qr")
+print(mod_qr)
+```
+
+## Access or display the results
+### Printing and getting the summary
+To print the basic information about the linreg objects include the original call to create it and the (named) coefficients, use `print`. For a more comprehensive summary including the coefficients with their standard error, t- and p-value, estimate of the residual variance, and the degrees of freedom of the model, use `summary`.
+```{r}
+print(mod_ols)
+
+summary(mod_ols)
+```
+
+### Residuals vs Fitted and Scale-Location plots
+The `plot` function creates two commonly used diagnostic plots, the Residuals vs Fitted and Scale-Location plot.
+```{r}
+plot(mod_ols)
+```
+
+### Accessing residuals, predicted values, and coefficients
+While you can access all results of the linear regression directly from the list of results that is the returned linreg object, some functions are provided for more convenient access to the residuals, predicted values, and coefficients. 
+```{r}
+# returns the vector of residuals
+resid(mod_ols)
+
+# returns the predicted values
+pred(mod_ols)
+
+# returns the named vector of coefficients
+coef(mod_ols)
+```
+
+### Structure of the linreg object
+The linreg object returned by the linreg function is a list containing the results of the linear regression as well as information about the original call such as formula and provided data. 
+Specifically the following fields are returned:
+
+- coefficients
+- residuals
+- fitted.values
+- df.residual
+- sigma
+- var_coef
+- std_error
+- t_values
+- p_values
+- call
+- formula
+- data_name
+- method
+- model_matrix
+- response
