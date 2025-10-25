@@ -34,10 +34,14 @@ ridgereg <- function(formula, data, lambda){
 
 
   # normalize all covariates
+  means <- rep(NULL, ncol(X))
+  variances <- rep(NULL, ncol(X))
   for(column in 1:ncol(X)){
     x <- X[, column]
-    if(var(x)!=0){
-      X[, column] <- (x-mean(x))/sqrt(var(x))
+    variances[column] <- stats::var(x)
+    means[column] <- mean(x)
+    if(variances[column]!=0){
+      X[, column] <- (x-means[column])/variances[column]
     }
   }
 
@@ -76,7 +80,9 @@ ridgereg <- function(formula, data, lambda){
     data_name = deparse(substitute(data)),
     model_matrix = X,
     response = y,
-    lambda = lambda
+    lambda = lambda,
+    means = means,
+    variances = variances
   )
 
   class(result) <- "ridgereg"

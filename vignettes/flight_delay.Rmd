@@ -1,0 +1,109 @@
+---
+title: "flight_delay"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{flight_delay}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(AdvancedRHT2025LabBonus)
+library(nycflights13)
+```
+
+
+# Create the dataset
+```{r}
+# Read in the weather dataset and the flights dataset 
+weather_data <- subset(weather, select=-time_hour)
+df <- dplyr::inner_join(flights, weather_data, n)
+df <- tidyr::drop_na(df, arr_delay)
+
+# remove eventual variables you do not believe to have a predictive value
+
+df
+
+
+```
+
+
+# Split into train, validation, and test
+```{r}
+trainIndex <- createDataPartition(df$arr_delay, p = .8, 
+                                  list = FALSE, 
+                                  times = 1,)
+
+train <- df[trainIndex,]
+test_valid  <- df[-trainIndex,]
+
+
+validIndex <- createDataPartition(test_valid$arr_delay, p = .75,
+                                  list = FALSE, 
+                                  times = 1)
+
+valid <- test_valid[validIndex,]
+test  <- test_valid[-validIndex,]
+```
+
+
+# Train ridge regression models and evaluate RMSE on the validation set
+```{r}
+lambdas <- c(0, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2)
+
+lambdas <- c(0)
+
+formula <- arr_delay ~ .
+
+best_model <- NULL
+best_lambda <- NULL
+best_RMSE <- Inf
+for(lambda in lambdas){
+  m <- ridgereg(formula, train, lambda)
+  
+  # get performance on validation set
+  
+  # get error
+  pred <- predict(m, valid)
+  error <- valid$arr_delay - pred
+  rmse <- sqrt(mean(error^2))
+  if(rmse < best_RMSE){
+    best_model <- m
+    best_lambda <- lambda
+    best_RMSE <- rmse
+  }
+}
+
+```
+
+# Predict the test set and report RMSE
+```{r}
+pred <- predict(best_model, test)
+error <- test$arr_delay - pred
+rmse <- sqrt(mean(error^2))
+cat("The best performing model was fit with lambda ", best_lambda, " and achieved a RMSE of ", rmse, " on the test set")
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+
+
+
+

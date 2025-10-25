@@ -16,9 +16,14 @@ Suggests:
     knitr,
     rmarkdown,
     testthat (>= 3.0.0),
-    MASS
+    MASS,
+    caret,
+    mlbench,
+    leaps
 Config/testthat/edition: 3
 Imports: 
-    ggplot2
+    ggplot2,
+    nycflights13,
+    dplyr
 RoxygenNote: 7.3.3
 VignetteBuilder: knitr
