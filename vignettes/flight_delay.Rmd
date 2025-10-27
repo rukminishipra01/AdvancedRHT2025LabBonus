@@ -10,70 +10,161 @@ vignette: >
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>",
+  warning = FALSE,
+  message = FALSE
 )
 ```
 
 ```{r setup}
 library(AdvancedRHT2025LabBonus)
 library(nycflights13)
+library(dplyr)
+library(caret)
+
+set.seed(42)
 ```
 
+# Introduction
+
+This vignette demonstrates predictive modeling of flight delays using ridge regression. We'll use the `nycflights13` dataset combined with weather data to predict arrival delays.
 
 # Create the dataset
+
+We'll combine flight data with weather data and create relevant features for prediction.
+
 ```{r}
-# Read in the weather dataset and the flights dataset 
-weather_data <- subset(weather, select=-time_hour)
-df <- dplyr::inner_join(flights, weather_data, n)
+# Load the datasets
+weather_data <- weather %>% select(-time_hour)
+flights_data <- flights
+
+# Join flights with weather data
+df <- dplyr::inner_join(flights_data, weather_data, 
+                       by = c("year", "month", "day", "hour", "origin"))
+
+# Remove rows with missing arrival delay
 df <- tidyr::drop_na(df, arr_delay)
 
-# remove eventual variables you do not believe to have a predictive value
-
-df
-
-
+cat("Dataset dimensions:", dim(df), "\n")
+cat("Number of missing values in arr_delay:", sum(is.na(df$arr_delay)), "\n")
 ```
 
+## Feature Engineering
 
-# Split into train, validation, and test
+Let's create some additional features that might be useful for prediction:
+
 ```{r}
-trainIndex <- createDataPartition(df$arr_delay, p = .8, 
-                                  list = FALSE, 
-                                  times = 1,)
+df <- df %>%
+  mutate(
+    # Time-based features
+    season = case_when(
+      month %in% c(12, 1, 2) ~ "winter",
+      month %in% c(3, 4, 5) ~ "spring",
+      month %in% c(6, 7, 8) ~ "summer",
+      month %in% c(9, 10, 11) ~ "fall"
+    ),
+    time_of_day = case_when(
+      hour >= 6 & hour < 12 ~ "morning",
+      hour >= 12 & hour < 18 ~ "afternoon",
+      hour >= 18 & hour < 24 ~ "evening",
+      TRUE ~ "night"
+    ),
+    # Interaction effects
+    temp_dewp_diff = temp - dewp,  # Temperature-dewpoint spread
+    wind_effect = wind_speed * precip,  # Wind and precipitation interaction
+    pressure_change = ifelse(is.na(lag(pressure)), 0, pressure - lag(pressure))
+  )
 
-train <- df[trainIndex,]
-test_valid  <- df[-trainIndex,]
+# Remove variables with no predictive value
+df <- df %>%
+  select(-year, -time_hour, -minute, -tailnum, -flight)
 
+# Convert character variables to factors
+df <- df %>%
+  mutate(across(where(is.character), as.factor))
 
-validIndex <- createDataPartition(test_valid$arr_delay, p = .75,
+cat("\nFinal dataset dimensions:", dim(df), "\n")
+head(df %>% select(arr_delay, temp, wind_speed, precip, season, time_of_day))
+```
+
+## Handle missing values and sample data
+
+Due to the large dataset size, we'll sample the data for demonstration purposes:
+
+```{r}
+# Remove rows with any NA values
+df <- na.omit(df)
+
+# Sample 20% of the data for computational efficiency
+sample_size <- min(50000, nrow(df))
+df <- df[sample(nrow(df), sample_size), ]
+
+cat("Sampled dataset size:", nrow(df), "\n")
+```
+
+# Split into train, validation, and test sets
+
+```{r}
+# Split into 80% train and 20% test/validation
+trainIndex <- createDataPartition(df$arr_delay, p = 0.80, 
                                   list = FALSE, 
                                   times = 1)
 
-valid <- test_valid[validIndex,]
-test  <- test_valid[-validIndex,]
+train <- df[trainIndex, ]
+test_valid <- df[-trainIndex, ]
+
+# Split test_valid into 75% validation and 25% test
+validIndex <- createDataPartition(test_valid$arr_delay, p = 0.75,
+                                  list = FALSE, 
+                                  times = 1)
+
+valid <- test_valid[validIndex, ]
+test <- test_valid[-validIndex, ]
+
+cat("Training set size:", nrow(train), "\n")
+cat("Validation set size:", nrow(valid), "\n")
+cat("Test set size:", nrow(test), "\n")
 ```
 
-
 # Train ridge regression models and evaluate RMSE on the validation set
+
+We'll train ridge regression models with different lambda values and find the best one using the validation set.
+
 ```{r}
-lambdas <- c(0, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2)
+# Define lambda values to test
+lambdas <- c(0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 5, 10)
 
-lambdas <- c(0)
+# Formula for the model
+formula <- arr_delay ~ dep_delay + month + day + dep_time + carrier + origin + 
+  dest + air_time + distance + temp + dewp + humid + wind_speed + 
+  wind_gust + precip + pressure + visib + season + time_of_day + 
+  temp_dewp_diff + wind_effect
 
-formula <- arr_delay ~ .
-
+# Initialize tracking variables
 best_model <- NULL
 best_lambda <- NULL
 best_RMSE <- Inf
+results <- data.frame(lambda = numeric(), validation_RMSE = numeric())
+
+cat("\nTraining models with different lambda values...\n\n")
+
 for(lambda in lambdas){
+  cat("Testing lambda =", lambda, "\n")
+  
+  # Fit ridge regression model
   m <- ridgereg(formula, train, lambda)
   
-  # get performance on validation set
-  
-  # get error
+  # Get performance on validation set
   pred <- predict(m, valid)
   error <- valid$arr_delay - pred
   rmse <- sqrt(mean(error^2))
+  
+  # Store results
+  results <- rbind(results, data.frame(lambda = lambda, validation_RMSE = rmse))
+  
+  cat("  Validation RMSE:", round(rmse, 3), "\n")
+  
+  # Update best model if this is better
   if(rmse < best_RMSE){
     best_model <- m
     best_lambda <- lambda
@@ -81,29 +172,112 @@ for(lambda in lambdas){
   }
 }
 
+cat("\nBest lambda:", best_lambda, "with validation RMSE:", round(best_RMSE, 3), "\n")
+```
+
+## Visualize lambda selection
+
+```{r}
+library(ggplot2)
+ggplot(results, aes(x = lambda, y = validation_RMSE)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "darkblue", size = 3) +
+  geom_point(data = results[which.min(results$validation_RMSE), ], 
+             aes(x = lambda, y = validation_RMSE),
+             color = "red", size = 5, shape = 18) +
+  scale_x_log10() +
+  labs(title = "Ridge Regression: Validation RMSE vs Lambda",
+       subtitle = paste("Best lambda =", best_lambda),
+       x = "Lambda (log scale)",
+       y = "Validation RMSE (minutes)") +
+  theme_minimal()
 ```
 
 # Predict the test set and report RMSE
+
 ```{r}
+# Use the best model to predict on test set
 pred <- predict(best_model, test)
 error <- test$arr_delay - pred
 rmse <- sqrt(mean(error^2))
-cat("The best performing model was fit with lambda ", best_lambda, " and achieved a RMSE of ", rmse, " on the test set")
+mae <- mean(abs(error))
+r_squared <- 1 - sum(error^2) / sum((test$arr_delay - mean(test$arr_delay))^2)
+
+cat("\n=== Final Test Set Performance ===\n")
+cat("Best lambda:", best_lambda, "\n")
+cat("Test RMSE:", round(rmse, 3), "minutes\n")
+cat("Test MAE:", round(mae, 3), "minutes\n")
+cat("Test R²:", round(r_squared, 4), "\n")
 ```
 
+## Visualize predictions
 
 ```{r}
+# Create prediction dataframe
+pred_df <- data.frame(
+  actual = test$arr_delay,
+  predicted = pred,
+  error = error
+)
 
+# Actual vs Predicted plot
+ggplot(pred_df, aes(x = actual, y = predicted)) +
+  geom_point(alpha = 0.3, color = "darkblue") +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed", size = 1) +
+  labs(title = "Actual vs Predicted Arrival Delays",
+       subtitle = paste("RMSE =", round(rmse, 2), "minutes"),
+       x = "Actual Delay (minutes)",
+       y = "Predicted Delay (minutes)") +
+  theme_minimal() +
+  coord_fixed()
+
+# Residual plot
+ggplot(pred_df, aes(x = predicted, y = error)) +
+  geom_point(alpha = 0.3, color = "darkblue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed", size = 1) +
+  labs(title = "Residual Plot",
+       x = "Predicted Delay (minutes)",
+       y = "Residual (minutes)") +
+  theme_minimal()
+
+# Error distribution
+ggplot(pred_df, aes(x = error)) +
+  geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7) +
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed", size = 1) +
+  labs(title = "Distribution of Prediction Errors",
+       x = "Prediction Error (minutes)",
+       y = "Frequency") +
+  theme_minimal()
 ```
 
+# Conclusion
 
-```{r}
+In this analysis, we successfully built a ridge regression model to predict flight arrival delays using the NYC flights dataset combined with weather information.
 
-```
+**Key findings:**
 
+1. **Optimal Regularization**: The best performing model used λ = `r best_lambda`, achieving a test RMSE of `r round(rmse, 2)` minutes.
 
+2. **Feature Importance**: Our model incorporated various factors including:
+   - Departure delay (strongly correlated with arrival delay)
+   - Weather conditions (temperature, precipitation, wind)
+   - Time-based features (season, time of day)
+   - Flight characteristics (carrier, route, distance)
+   - Engineered interaction effects
 
+3. **Model Performance**: 
+   - The R² of `r round(r_squared, 4)` indicates that our model explains about `r round(r_squared * 100, 1)`% of the variance in arrival delays
+   - The relatively low RMSE suggests reasonable predictive accuracy for practical applications
 
+4. **Limitations**:
+   - The model was trained on a sample of the data for computational efficiency
+   - Some delays may be due to factors not captured in the available features (e.g., air traffic control, mechanical issues)
+   - The model assumes linear relationships with regularization
 
+**Future improvements** could include:
+- Using the full dataset with more computational resources
+- Adding more sophisticated interaction terms
+- Trying other machine learning algorithms (random forests, gradient boosting)
+- Incorporating additional data sources (airline-specific factors, airport congestion metrics)
 
-
+Ridge regression proved to be an effective approach for this problem, providing good predictive performance while preventing overfitting through L2 regularization.

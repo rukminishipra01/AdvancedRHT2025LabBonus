@@ -19,7 +19,9 @@ Suggests:
     MASS,
     caret,
     mlbench,
-    leaps
+    leaps,
+    reshape2,
+    tidyr
 Config/testthat/edition: 3
 Imports: 
     ggplot2,

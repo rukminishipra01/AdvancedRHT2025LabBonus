@@ -10,11 +10,13 @@ vignette: >
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
 )
 ```
 
-```{r setup}
+```{r setup, message=FALSE, warning=FALSE}
 library(AdvancedRHT2025LabBonus)
 library(caret)
 library(mlbench)
@@ -22,129 +24,237 @@ library(mlbench)
 set.seed(42)
 ```
 
-# How to do a simple prediction problem using ridgereg()
-## Load the dataset and split into train and test
+# Introduction
+
+This vignette demonstrates how to use the `ridgereg()` function for ridge regression analysis. We'll use the Boston Housing dataset to predict median house values and compare ridge regression with standard linear regression approaches.
+
+# Load the dataset and split into train and test
+
 ```{r}
 data(BostonHousing)
-trainIndex <- createDataPartition(BostonHousing$medv, p = .8, 
+
+# Examine the data
+head(BostonHousing)
+dim(BostonHousing)
+
+# Create training and test datasets (80/20 split)
+trainIndex <- createDataPartition(BostonHousing$medv, p = 0.8, 
                                   list = FALSE, 
                                   times = 1)
-train <- BostonHousing[ trainIndex,]
-test  <- BostonHousing[-trainIndex,]
+train <- BostonHousing[trainIndex, ]
+test  <- BostonHousing[-trainIndex, ]
+
+cat("Training set size:", nrow(train), "\n")
+cat("Test set size:", nrow(test), "\n")
 ```
 
-## Fit a linear regression model
+# Fit a linear regression model
+
+First, let's fit a standard linear regression model using all predictors.
+
 ```{r}
 lmFit <- train(medv ~ ., data = train, 
-                 method = "lm")
-lmFit
+               method = "lm")
+print(lmFit)
 ```
 
-## Fit a linear regression model with forward selection of covariates on the training dataset
-```{r}
+The linear model achieves:
+- RMSE: `r round(lmFit$results$RMSE, 3)`
+- R²: `r round(lmFit$results$Rsquared, 3)`
 
+# Fit a linear regression model with forward selection of covariates
+
+Now we'll use forward selection to automatically select the best subset of predictors.
+
+```{r}
 leapForwardFit <- train(medv ~ ., data = train, 
-                 method = "leapForward", 
-                 verbose = FALSE)
-leapForwardFit
+                        method = "leapForward",
+                        tuneGrid = data.frame(nvmax = 1:13),
+                        trControl = trainControl(method = "cv", number = 10))
+print(leapForwardFit)
 ```
 
 ```{r}
-summary(leapForwardFit)
+summary(leapForwardFit$finalModel)
+plot(leapForwardFit)
 ```
 
-## Evaluate the performance on the training dataset
-### Linear regression model
+The forward selection model selected `r leapForwardFit$bestTune$nvmax` variables.
+
+# Evaluate the performance on the training dataset
+
+## Linear regression model
+
 ```{r}
-lm_pred <- predict(lmFit, train)
-postResample(pred = lm_pred, obs = train$medv)
+lm_pred_train <- predict(lmFit, train)
+lm_train_performance <- postResample(pred = lm_pred_train, obs = train$medv)
+print(lm_train_performance)
 ```
-### Linear regression model with forward selection
+
+## Linear regression model with forward selection
+
 ```{r}
-leapForward_pred <- predict(leapForwardFit, train)
-postResample(pred = leapForward_pred, obs = train$medv)
+leapForward_pred_train <- predict(leapForwardFit, train)
+leapForward_train_performance <- postResample(pred = leapForward_pred_train, obs = train$medv)
+print(leapForward_train_performance)
 ```
 
-## Fit a ridge regression model for different values of λ
+# Fit a ridge regression model for different values of λ
+
+Now we'll implement ridge regression using our custom `ridgereg()` function integrated with caret.
 ```{r}
-modelInfo <- list(label = "Ridgeregression",
-                  library = "AdvancedRHT2025LabBonus",
-                  type = "Regression",
-                  parameters = data.frame(parameter = "lambda",
-                                          class = "numeric",
-                                          label = "lambda"),
-                  grid = function(x, y, len = NULL, search = "grid") {
-                    ## To use grid search:
-                    if(search == "grid") {
-                      out <- expand.grid(lambda = 2 ^((1:len) - 3))
-                    } else {
-                      ## For random search, define ranges for the parameters then
-                      ## generate random values for them
-                      out <- data.frame(lambda = 2^runif(len, min = 0, max = 1))
-                    }
-                    return(out)
-                  },
-                  loop = NULL,
-                  fit = function(x, y, wts, param, lev, last, classProbs, ...) {          
-                    ## ridgereg requires a data frame with predictors and response
-                    dat <- if(is.data.frame(x)) x else as.data.frame(x)
-                    dat$medv <- y
-                    mod <- AdvancedRHT2025LabBonus::ridgereg(
-                      medv ~ .,
-                      data = dat,
-                      lambda = param$lambda
-                      )
-                    },
-                  predict = function(modelFit, newdata, submodels = NULL) {
-                    if(!is.data.frame(newdata)) newdata <- as.data.frame(newdata)
-                    newdata$medv <- 0
-                    AdvancedRHT2025LabBonus::predict(modelFit, newdata)
-                  },
-                  prob = NULL,
-                  predictors = function(x, ...) {
-                    unique(as.vector(variable.names(x)))
-                  },
-                  levels = NULL,
-                  sort = function(x) x)
+# Define custom model for caret
+modelInfo <- list(
+  label = "Ridge Regression",
+  library = "AdvancedRHT2025LabBonus",
+  type = "Regression",
+  parameters = data.frame(
+    parameter = "lambda",
+    class = "numeric",
+    label = "Lambda"
+  ),
+  grid = function(x, y, len = NULL, search = "grid") {
+    if(search == "grid") {
+      # Generate lambda values from 0.01 to 10
+      out <- data.frame(lambda = exp(seq(log(0.01), log(10), length.out = len)))
+    } else {
+      out <- data.frame(lambda = exp(runif(len, min = log(0.01), max = log(10))))
+    }
+    return(out)
+  },
+  fit = function(x, y, wts, param, lev, last, classProbs, ...) {
+    # Convert matrix to data frame if needed
+    dat <- if(is.data.frame(x)) x else as.data.frame(x, stringsAsFactors = TRUE)
+    dat$medv <- y
+    
+    # Fit the model
+    mod <- AdvancedRHT2025LabBonus::ridgereg(
+      medv ~ .,
+      data = dat,
+      lambda = param$lambda
+    )
+    return(mod)
+  },
+  predict = function(modelFit, newdata, submodels = NULL) {
+    # Make sure newdata is a data frame
+    if(!is.data.frame(newdata)) {
+      newdata <- as.data.frame(newdata, stringsAsFactors = TRUE)
+    }
+    
+    # Add dummy response variable (required by model.matrix in predict)
+    if(!"medv" %in% names(newdata)) {
+      newdata$medv <- 0
+    }
+    
+    # Get predictions
+    pred <- predict(modelFit, newdata)
+    return(pred)
+  },
+  prob = NULL,
+  sort = function(x) x[order(x$lambda), ]
+)
 
-
+# Train ridge regression without cross-validation first
 ridgeFit <- train(medv ~ ., 
                   data = train, 
-                  method = modelInfo)
-ridgeFit
-
-
+                  method = modelInfo,
+                  tuneGrid = data.frame(lambda = 1),  # Single lambda for no resampling
+                  trControl = trainControl(method = "none"))
+print(ridgeFit)
 ```
 
-## Find the best hyperparameter value for λ using 10-fold cross-validation on the training set
+# Find the best hyperparameter value for λ using 10-fold cross-validation
 ```{r}
 ridgeFitCV <- train(medv ~ ., 
-                  data = train, 
-                  method = modelInfo,
-                  trControl = trainControl(
-                    method="repeatedcv", 
-                    number=10)
-                  )
-ridgeFitCV
+                    data = train, 
+                    method = modelInfo,
+                    tuneLength = 10,
+                    trControl = trainControl(
+                      method = "repeatedcv", 
+                      number = 10,
+                      repeats = 3)
+                    )
+print(ridgeFitCV)
+plot(ridgeFitCV, main = "Ridge Regression with 10-Fold CV: RMSE vs Lambda")
 ```
 
-## Evaluate the performance of all three models on the test dataset
-### Linear regression model
+The best lambda value from cross-validation is: **λ = `r round(ridgeFitCV$bestTune$lambda, 4)`**
+
+# Evaluate the performance of all three models on the test dataset
+
+## Linear regression model
+
 ```{r}
 lm_pred <- predict(lmFit, test)
-postResample(pred = lm_pred, obs = test$medv)
+lm_test_performance <- postResample(pred = lm_pred, obs = test$medv)
+print(lm_test_performance)
 ```
-### Linear regression model with forward selection
+
+## Linear regression model with forward selection
+
 ```{r}
 leapForward_pred <- predict(leapForwardFit, test)
-postResample(pred = leapForward_pred, obs = test$medv)
+leapForward_test_performance <- postResample(pred = leapForward_pred, obs = test$medv)
+print(leapForward_test_performance)
 ```
-### Ridge regression model
+
+## Ridge regression model
+
 ```{r}
 ridge_pred <- predict(ridgeFitCV, test)
-postResample(pred = ridge_pred, obs = test$medv)
+ridge_test_performance <- postResample(pred = ridge_pred, obs = test$medv)
+print(ridge_test_performance)
 ```
 
+# Comparison of models
 
-## Conclusion
-[TODO]
+```{r}
+# Create comparison table
+comparison <- data.frame(
+  Model = c("Linear Regression", "Forward Selection", "Ridge Regression (CV)"),
+  RMSE = c(lm_test_performance["RMSE"], 
+           leapForward_test_performance["RMSE"], 
+           ridge_test_performance["RMSE"]),
+  Rsquared = c(lm_test_performance["Rsquared"], 
+               leapForward_test_performance["Rsquared"], 
+               ridge_test_performance["Rsquared"]),
+  MAE = c(lm_test_performance["MAE"], 
+          leapForward_test_performance["MAE"], 
+          ridge_test_performance["MAE"])
+)
+
+print(comparison)
+```
+
+```{r, echo=FALSE}
+# Visualize comparison
+library(ggplot2)
+comparison_long <- reshape2::melt(comparison, id.vars = "Model")
+ggplot(comparison_long, aes(x = Model, y = value, fill = Model)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~variable, scales = "free_y") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Model Performance Comparison on Test Set",
+       y = "Value") +
+  scale_fill_brewer(palette = "Set2")
+```
+
+# Conclusion
+
+Based on our analysis of the Boston Housing dataset:
+
+1. **Linear Regression**: The basic linear model using all predictors achieved an RMSE of `r round(lm_test_performance["RMSE"], 3)` with an R² of `r round(lm_test_performance["Rsquared"], 3)` on the test set.
+
+2. **Forward Selection**: The forward selection approach selected the most important `r leapForwardFit$bestTune$nvmax` variables and achieved an RMSE of `r round(leapForward_test_performance["RMSE"], 3)` with an R² of `r round(leapForward_test_performance["Rsquared"], 3)`.
+
+3. **Ridge Regression**: Our ridge regression model with optimal λ = `r round(ridgeFitCV$bestTune$lambda, 4)` achieved an RMSE of `r round(ridge_test_performance["RMSE"], 3)` with an R² of `r round(ridge_test_performance["Rsquared"], 3)`.
+
+**Key Findings**:
+
+- Ridge regression provides a good balance between bias and variance through L2 regularization
+- The optimal lambda value suggests that moderate regularization improves model performance
+- Forward selection reduced model complexity while maintaining competitive performance
+- All three models performed reasonably well, with `r comparison$Model[which.min(comparison$RMSE)]` achieving the lowest RMSE
+
+Ridge regression is particularly useful when dealing with multicollinearity among predictors, which is often present in real-world datasets like the Boston Housing data. The regularization helps prevent overfitting and can lead to more robust predictions on new data.

@@ -9,6 +9,8 @@
 \arguments{
 \item{object}{A ridgereg object}
 
+\item{newdata}{Optional new data for predictions}
+
 \item{...}{Additional arguments (not used)}
 }
 \value{

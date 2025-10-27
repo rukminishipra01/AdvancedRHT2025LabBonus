@@ -33,15 +33,17 @@ ridgereg <- function(formula, data, lambda){
   y <- data[[response_var]]
 
 
-  # normalize all covariates
-  means <- rep(NULL, ncol(X))
-  variances <- rep(NULL, ncol(X))
+  # normalize all covariates (except intercept)
+  means <- rep(0, ncol(X))
+  sds <- rep(1, ncol(X))
+
   for(column in 1:ncol(X)){
+    # Skip normalization for intercept column (constant columns)
     x <- X[, column]
-    variances[column] <- stats::var(x)
-    means[column] <- mean(x)
-    if(variances[column]!=0){
-      X[, column] <- (x-means[column])/variances[column]
+    if(stats::sd(x) != 0){
+      means[column] <- mean(x)
+      sds[column] <- stats::sd(x)
+      X[, column] <- (x - means[column]) / sds[column]
     }
   }
 
@@ -59,7 +61,7 @@ ridgereg <- function(formula, data, lambda){
   Xty <- t(X) %*% y
   beta_hat_ridge <- solve(XtX+lambda*diag(p)) %*% Xty
 
-  # Fitted values: ŷ = Xβ̂
+  # Fitted values: Å· = XÎ²Ì‚
   y_hat <- as.vector(X %*% beta_hat_ridge)
 
 
@@ -82,7 +84,7 @@ ridgereg <- function(formula, data, lambda){
     response = y,
     lambda = lambda,
     means = means,
-    variances = variances
+    sds = sds
   )
 
   class(result) <- "ridgereg"
